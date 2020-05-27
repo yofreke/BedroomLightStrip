@@ -1,7 +1,6 @@
 #include <Wire.h>
-#include <LiquidCrystal_PCF8574.h>
 
-LiquidCrystal_PCF8574 lcd(0x3F);
+#include "lcd_driver.h"
 
 #define PIN_LED_RED 2
 #define PIN_LED_GREEN 3
@@ -9,9 +8,11 @@ LiquidCrystal_PCF8574 lcd(0x3F);
 #define PIN_LED_WHITE 5
 #define PIN_LED_WARMWHITE 6
 
-#define PIN_ENCODER_A 22
-#define PIN_ENCODER_B 24
-#define PIN_ENCODER_SWITCH 26
+#define PIN_JOYSTICK_X A2
+#define PIN_JOYSTICK_Y A3
+#define PIN_JOYSTICK_SWITCH 26
+
+#define PIN_CLOCK_DEBUG 50
 
 #define OCTAVE 1 // use the octave output function
 //#define LOG_OUT 1             // use the log output function
@@ -24,6 +25,7 @@ int noise[] = {90, 125, 147, 143, 128, 123, 104, 89}; //just test output without
 #define MODE_STARTUP 0
 #define MODE_MUSIC 1
 #define MODE_SUNRISE 2
+#define MODE_MENU 3
 
 byte currentMode = MODE_STARTUP;
 
@@ -104,7 +106,11 @@ byte lightsCount = sizeof(lights) / sizeof(LightMapping);
 
 #define MUSIC_MODE_VALUE_FACTOR 8.0f
 
-int pinEncoderALast;
+bool lastJoystickSwitchValue = false;
+float menuAccumulatorX = 0.0f;
+float menuAccumulatorY = 0.0f;
+
+#define CONSUME_ACCUMULATOR(sourceAccumulator, destFloat) (destFloat = sourceAccumulator; sourceAccumulator = 0.0f;)
 
 void music_loop() {
   cli();  // UDRE interrupt slows this way down on arduino1.0
@@ -234,6 +240,12 @@ void music_loop() {
 #define LCD_EQUALIZER_VALUE_FACTOR 12.0f
 volatile unsigned long lastLcdUpdateTimeMs = 0;
 
+/**
+   Normally the default UI is shown for a given mode.
+   Navigation is enabled by pressing the joystick.
+*/
+bool drawNavigation = false;
+
 //struct ModeData {
 //  char name[8];
 //  void (*tickFn)();
@@ -246,83 +258,116 @@ volatile unsigned long lastLcdUpdateTimeMs = 0;
 
 char *modeNames[] = { "Startup", "Music", "Sunrise" };
 
+/** white=0 and warmWhite=20 is a gentle place to start */
+float modeData_sunrise_brightnessWhite = 0.0f;
+float modeData_sunrise_brightnessWarmWhite = 20.0f;
+
+/** 0=W; 1=WW; */
+byte modeData_sunrise_menuSelection = 0;
+
 void updateLcd(unsigned long now) {
   lastLcdUpdateTimeMs = now;
 
-  // Common header
-  lcd.setCursor(0, 0);
-  char line[21];
-  sprintf(line, "[Mode: %s]", modeNames[currentMode]);
-  lcd.print(line);
+  if (!drawNavigation) {
+    //     Common header
+    char line[21];
+    sprintf(line, "[Mode: %s]", modeNames[currentMode]);
+    lcdSetLine(0, line);
 
-  if (currentMode == MODE_STARTUP) {
-    lcd.setCursor(0, 1);
-    lcd.print(" BedroomLightStrip ");
-    lcd.setCursor(0, 2);
-    lcd.print(" ...Starting Up...  ");
-  } else if (currentMode == MODE_MUSIC) {
-    // Display current music stuff
+    if (currentMode == MODE_STARTUP) {
+      lcdSetLine(1, " BedroomLightStrip ");
+      lcdSetLine(2, " ...Starting Up...  ");
 
-    // Equalizer
-    float value;
-    for (int i = 0; i < 3; i++) {
-      lcd.setCursor(0, i + 1);
-      //      int value = fht_oct_out[i];
-      value = ((float)lightsData[i].currentBrightness) / 255.0f * LCD_EQUALIZER_VALUE_FACTOR;
+    } else if (currentMode == MODE_MUSIC) {
+      // Display current music stuff
 
-      if (i == 0) {
-        line[0] = 'R';
-      } else if (i == 1) {
-        line[0] = 'G';
-      } else {
-        line[0] = 'B';
-      }
+      // Equalizer
+      float valueRed = ((float)lightsData[0].currentBrightness) / 255.0f * LCD_EQUALIZER_VALUE_FACTOR;
+      float valueGreen = ((float)lightsData[1].currentBrightness) / 255.0f * LCD_EQUALIZER_VALUE_FACTOR;
+      float valueBlue = ((float)lightsData[2].currentBrightness) / 255.0f * LCD_EQUALIZER_VALUE_FACTOR;
+      float valueWhite = ((float)lightsData[3].currentBrightness) / 255.0f * LCD_EQUALIZER_VALUE_FACTOR;
+      float valueWarmWhite = ((float)lightsData[4].currentBrightness) / 255.0f * LCD_EQUALIZER_VALUE_FACTOR;
 
-      for (int j = 1; j < 20; j++) {
-        line[j] = value > j * 0.05f ? '>' : ' ';
-      }
-      line[20] = '\0';
-      lcd.print(line);
+      lcdSetChar(0, 1, 'R');
+      lcdShowBarGraph(1, 1, 18, '>', ' ', valueRed);
+
+      lcdSetChar(0, 2, 'G');
+      lcdShowBarGraph(1, 2, 18, '>', ' ', valueGreen);
+
+      lcdSetChar(0, 3, 'B');
+      lcdShowBarGraph(1, 3, 18, '>', ' ', valueBlue);
+
+      lcdSetChar(18, 0, valueWhite > 0.1f ? '!' : ' ');
+      lcdSetChar(19, 0, valueWarmWhite > 0.1f ? '!' : ' ');
+      
+    } else if (currentMode == MODE_SUNRISE) {
+      // FIXME: Replace with real time from time module
+      lcdSetLine(1, (String("Time: ") + now).c_str());
+
+      //       lcdShowBarGraph(=1, 2, 18, 'X', ' ', (float)lightsData[3].currentBrightness / 255.0f);
+      //       lcdShowBarGraph(1, 3, 18, 'X', ' ', (float)lightsData[4].currentBrightness / 255.0f);
+      lcdSetChars(0, 2, "W :");
+      lcdShowBarGraph(3, 2, 16, '+', ' ', modeData_sunrise_brightnessWhite / 255.0f);
+
+      lcdSetChars(0, 3, "WW:");
+      lcdShowBarGraph(3, 3, 16, '+', ' ', modeData_sunrise_brightnessWarmWhite / 255.0f);
+
+      lcdSetChar(19, 2, modeData_sunrise_menuSelection == 0 ? '<' : ' ');
+      lcdSetChar(19, 3, modeData_sunrise_menuSelection == 1 ? '<' : ' ');
     }
+  } else {
+    // Draw navigation menu
 
-    value = ((float)lightsData[3].currentBrightness) / 255.0f * LCD_EQUALIZER_VALUE_FACTOR;
-    lcd.setCursor(18, 0);
-    lcd.print(value > 0.1f ? '!' : ' ');
-    value = ((float)lightsData[4].currentBrightness) / 255.0f * LCD_EQUALIZER_VALUE_FACTOR;
-    lcd.setCursor(19, 0);
-    lcd.print(value > 0.1f ? '!' : ' ');
-
-  } else if (currentMode == MODE_SUNRISE) {
-    // Display current time
   }
 }
 
 void setAppMode(int newMode) {
-  Serial.print("setAppMode: newMode= ");
-  Serial.println(newMode);
+//  Serial.print("setAppMode: newMode= ");
+//  Serial.println(newMode);
 
   currentMode = newMode;
 
   // Clear LCD between mode changes to ensure clean start
-  lcd.clear();
+  lcdClear();
+
+  // Fade all lights to 0
+  float valueRed = analogRead(PIN_LED_RED);
+  int valueGreen = analogRead(PIN_LED_GREEN);
+  int valueBlue = analogRead(PIN_LED_BLUE);
+  int valueWhite = analogRead(PIN_LED_WHITE);
+  int valueWarmWhite = analogRead(PIN_LED_WARMWHITE);
+
+  #define TRANSITION_FADE_FACTOR 0.9f
+
+  for (int i = 0; i < 50; i++) {
+    analogWrite(PIN_LED_RED, valueRed *= TRANSITION_FADE_FACTOR);
+    analogWrite(PIN_LED_GREEN, valueGreen *= TRANSITION_FADE_FACTOR);
+    analogWrite(PIN_LED_BLUE, valueBlue *= TRANSITION_FADE_FACTOR);
+    analogWrite(PIN_LED_WHITE, valueWhite *= TRANSITION_FADE_FACTOR);
+    analogWrite(PIN_LED_WARMWHITE, valueWarmWhite *= TRANSITION_FADE_FACTOR);
+
+    delay(3);
+  }
+
+  analogWrite(PIN_LED_RED, 0);
+  analogWrite(PIN_LED_GREEN, 0);
+  analogWrite(PIN_LED_BLUE, 0);
+  analogWrite(PIN_LED_WHITE, 0);
+  analogWrite(PIN_LED_WARMWHITE, 0);
 }
 
 void sunrise_loop() {
   //  analogWrite(PIN_LED_WHITE,250);
   //  analogWrite(PIN_LED_WARMWHITE, 250);
 
-  analogWrite(PIN_LED_WHITE, 25);
-  analogWrite(PIN_LED_WARMWHITE, 250);
+  //  analogWrite(PIN_LED_WHITE, 25);
+  //  analogWrite(PIN_LED_WARMWHITE, 250);
 
-  //  analogWrite(PIN_LED_WHITE, 250);
-  //  analogWrite(PIN_LED_WARMWHITE, 0);
+  analogWrite(PIN_LED_WHITE, modeData_sunrise_brightnessWhite);
+  analogWrite(PIN_LED_WARMWHITE, modeData_sunrise_brightnessWarmWhite);
 
-  delay(100);
+  //  delay(100);
 }
-
-
-long lastEncoderEventMs = 0;
-#define ENCODER_COOLDOWN_DURATION 100
 
 struct MenuItem {
   char title[16];
@@ -357,50 +402,102 @@ struct MenuItem root_menuItem = {
 
 //struct MenuItem* currentItem;
 
+inline float scaleJoystickValue(float n) {
+  float scaledValue = (n - 512.0f) / 512.0f;
+  // High pass filter
+  if (abs(scaledValue) <= 0.05f) {
+    return 0;
+  }
+  return pow(scaledValue, 2.0f) * (scaledValue < 0 ? -1 : 1);
+}
+
+#define MENU_ACCUMULATOR_TICK 90
+
 void tick_menu(unsigned long now) {
-  int encoderDirection = 0;
+  int valueX = analogRead(PIN_JOYSTICK_X);
+  // this small pause is needed between reading
+  // analog pins, otherwise we get the same value twice
+  delay(1);
+  int valueY = analogRead(PIN_JOYSTICK_Y);
+  delay(1);
+  // Default switch value is 1
+  bool valueSwitch = digitalRead(PIN_JOYSTICK_SWITCH) != 1;
 
-  int aVal = digitalRead(PIN_ENCODER_A);
-  int bVal;
+  //  Serial.print(valueX);
+  //  Serial.print(" ");
+  //    Serial.print(valueY);
+  //  Serial.print(" ");
+  //  Serial.print(valueSwitch);
+  //    Serial.println(" ");
 
-  if (aVal != pinEncoderALast) { // Means the knob is rotating
-    // if the knob is rotating, we need to determine direction
-    // We do that by reading pin B.
-    bVal = digitalRead(PIN_ENCODER_B);
-    if (aVal == 1 && bVal == 1) {
-      encoderDirection = 1;
-    } else {
-      encoderDirection = -1;
+  // Value from -1 to +1
+  // Map joystick values to values that make sense in our project
+  menuAccumulatorX += scaleJoystickValue(valueY) * -1;
+  menuAccumulatorY += scaleJoystickValue(valueX);
+
+  //    Serial.print(menuAccumulatorX);
+  //    Serial.print(" ");
+  //  Serial.print(menuAccumulatorY);
+  //    Serial.println(" ");
+
+  if (valueSwitch != lastJoystickSwitchValue && !valueSwitch) {
+    //    FIXME: In future this should go to navigation menu
+    //    drawNavigation = true;
+
+    switch (currentMode) {
+      case MODE_SUNRISE:
+        setAppMode(MODE_MUSIC);
+        break;
+      case MODE_MUSIC:
+        setAppMode(MODE_SUNRISE);
+        break;
     }
   }
 
-  if (encoderDirection == 0) {
-    return;
+  // Per mode draw settings
+  if (currentMode == MODE_SUNRISE) {
+    // Toggle selected value
+    if (menuAccumulatorY < -MENU_ACCUMULATOR_TICK) {
+      menuAccumulatorY = 0;
+
+      modeData_sunrise_menuSelection = !modeData_sunrise_menuSelection;
+
+    } else if (menuAccumulatorY > MENU_ACCUMULATOR_TICK) {
+      menuAccumulatorY = 0;
+
+      modeData_sunrise_menuSelection = !modeData_sunrise_menuSelection;
+    }
+
+#define MENU_SUNRISE_X_FACTOR 0.5f
+
+    // Smooth scaling of brightness
+    if (!modeData_sunrise_menuSelection) {
+      modeData_sunrise_brightnessWhite += menuAccumulatorX * MENU_SUNRISE_X_FACTOR;
+
+      if (modeData_sunrise_brightnessWhite < 0) {
+        modeData_sunrise_brightnessWhite = 0;
+      } else if (modeData_sunrise_brightnessWhite > 250) {
+        modeData_sunrise_brightnessWhite = 250;
+      }
+
+      //      Serial.println(modeData_sunrise_brightnessWhite);
+
+    } else {
+      modeData_sunrise_brightnessWarmWhite += menuAccumulatorX * MENU_SUNRISE_X_FACTOR;
+
+      if (modeData_sunrise_brightnessWarmWhite < 0) {
+        modeData_sunrise_brightnessWarmWhite = 0;
+      } else if (modeData_sunrise_brightnessWarmWhite > 250) {
+        modeData_sunrise_brightnessWarmWhite = 250;
+      }
+
+      //      Serial.println(modeData_sunrise_brightnessWarmWhite);
+    }
+
+    menuAccumulatorX = 0;
   }
 
-  // Debounce results
-//  if (now - lastEncoderEventMs < ENCODER_COOLDOWN_DURATION) {
-//    return;
-//  }
-
-  //  Serial.print("pinEncoderALast= ");
-  //  Serial.print(pinEncoderALast);
-
-  // Event is legit
-  pinEncoderALast = aVal;
-
-  lastEncoderEventMs = now;
-
-  // Two events are fired for a single click of knob, we only care about the second.
-  if (aVal == 1) {
-    Serial.print("now= ");
-    Serial.print(now);
-    Serial.print("aVal= ");
-    Serial.print(aVal);
-    Serial.print("bVal= ");
-    Serial.print(bVal);
-    Serial.println(encoderDirection < 0 ? "MOVE DOWN" : "move up");
-  }
+  lastJoystickSwitchValue = valueSwitch;
 }
 
 void setup()
@@ -409,14 +506,7 @@ void setup()
   Serial.begin(9600);
 
   // LCD
-  lcd.begin(20, 4);
-  lcd.setBacklight(255);
-  lcd.clear();
-  lcd.noCursor();
-  lcd.noBlink();
-  lcd.noAutoscroll();
-  lcd.setCursor(0, 1);
-  lcd.print(" BedroomLightStrip ");
+  lcdSetup();
 
   // LED brightness output
   pinMode(PIN_LED_RED, OUTPUT);
@@ -434,15 +524,12 @@ void setup()
   // Mic input
   setFreeRunMode();
 
-  // Encoder input
-  pinMode (PIN_ENCODER_A, INPUT);
-  pinMode (PIN_ENCODER_B, INPUT);
-  pinMode (PIN_ENCODER_SWITCH, INPUT);
+  // Joystick input
+  pinMode (PIN_JOYSTICK_X, INPUT);
+  pinMode (PIN_JOYSTICK_Y, INPUT);
+  pinMode (PIN_JOYSTICK_SWITCH, INPUT_PULLUP);
 
-  /* Read Pin A
-    Whatever state it's in will reflect the last position
-  */
-  pinEncoderALast = digitalRead(PIN_ENCODER_A);
+  pinMode(PIN_CLOCK_DEBUG, OUTPUT);
 
   // Start app
   delay(250);
@@ -467,6 +554,8 @@ void loop() {
 
     if (abs(now - lastLcdUpdateTimeMs) > LCD_UPDATE_INTERVAL_MS) {
       updateLcd(now);
+      // FIXME: Lol naming
+      lcdUpdate(now);
     }
   }
 }
