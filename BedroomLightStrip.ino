@@ -358,26 +358,20 @@ struct MenuItem root_menuItem = {
 //struct MenuItem* currentItem;
 
 void tick_menu(unsigned long now) {
-  byte encoderDirection = 0;
+  int encoderDirection = 0;
 
   int aVal = digitalRead(PIN_ENCODER_A);
+  int bVal;
 
   if (aVal != pinEncoderALast) { // Means the knob is rotating
     // if the knob is rotating, we need to determine direction
     // We do that by reading pin B.
-    int bVal = digitalRead(PIN_ENCODER_B);
-    if (bVal != aVal) { // Means pin A Changed first - We're Rotating Clockwise.
+    bVal = digitalRead(PIN_ENCODER_B);
+    if (aVal == 1 && bVal == 1) {
       encoderDirection = 1;
-    } else {// Otherwise B changed first and we're moving CCW
+    } else {
       encoderDirection = -1;
     }
-
-    //    if (encoderDirection != 0) {
-    //      Serial.print("pinEncoderALast=");
-    //      Serial.print(pinEncoderALast);
-    //      Serial.print("aVal=");
-    //      Serial.print(aVal);
-    //    }
   }
 
   if (encoderDirection == 0) {
@@ -385,15 +379,28 @@ void tick_menu(unsigned long now) {
   }
 
   // Debounce results
-  if (now - lastEncoderEventMs < ENCODER_COOLDOWN_DURATION) {
-    return;
-  }
+//  if (now - lastEncoderEventMs < ENCODER_COOLDOWN_DURATION) {
+//    return;
+//  }
+
+  //  Serial.print("pinEncoderALast= ");
+  //  Serial.print(pinEncoderALast);
 
   // Event is legit
   pinEncoderALast = aVal;
 
   lastEncoderEventMs = now;
-  Serial.println(encoderDirection < 0 ? "MOVE DOWN" : "move up");
+
+  // Two events are fired for a single click of knob, we only care about the second.
+  if (aVal == 1) {
+    Serial.print("now= ");
+    Serial.print(now);
+    Serial.print("aVal= ");
+    Serial.print(aVal);
+    Serial.print("bVal= ");
+    Serial.print(bVal);
+    Serial.println(encoderDirection < 0 ? "MOVE DOWN" : "move up");
+  }
 }
 
 void setup()
@@ -439,8 +446,8 @@ void setup()
 
   // Start app
   delay(250);
-  setAppMode(MODE_MUSIC);
-  //  setAppMode(MODE_SUNRISE);
+  //  setAppMode(MODE_MUSIC);
+  setAppMode(MODE_SUNRISE);
 }
 
 void loop() {
