@@ -76,7 +76,7 @@ void lcdShowBarGraph(int columnIndex, int rowIndex, int charWidth, char activeCh
 byte drawRowIndex = 0;
 char drawRowBuffer[21];
 
-void lcdUpdate(unsigned long now) {
+void lcdUpdate() {
   lcd.setCursor(0, drawRowIndex);
   copyChars(lineBuffer, drawRowIndex * 21, drawRowBuffer, 0, false);
   drawRowBuffer[20] = '\0';
