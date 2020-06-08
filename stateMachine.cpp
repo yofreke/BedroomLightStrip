@@ -23,30 +23,38 @@ void stateMachine_setMode(int newMode)
   // Clear LCD between mode changes to ensure clean start
   lcdClear();
 
-  // Fade all lights to 0
-  float valueRed = analogRead(PIN_LED_RED);
-  delay(1);
-  float valueGreen = analogRead(PIN_LED_GREEN);
-  delay(1);
-  float valueBlue = analogRead(PIN_LED_BLUE);
-  delay(1);
-  float valueWhite = analogRead(PIN_LED_WHITE);
-  delay(1);
-  float valueWarmWhite = analogRead(PIN_LED_WARMWHITE);
-  delay(1);
+  // Note: analogRead gives values of ~500 to start with.
+  // This causes an undesirable flashing on boot.
 
-#define TRANSITION_FADE_FACTOR 0.9f
+  //   // Fade all lights to 0
+  //   float valueRed = analogRead(PIN_LED_RED);
+  //   delay(1);
+  //   float valueGreen = analogRead(PIN_LED_GREEN);
+  //   delay(1);
+  //   float valueBlue = analogRead(PIN_LED_BLUE);
+  //   delay(1);
+  //   float valueWhite = analogRead(PIN_LED_WHITE);
+  //   delay(1);
+  //   float valueWarmWhite = analogRead(PIN_LED_WARMWHITE);
+  //   delay(1);
 
-  for (int i = 0; i < 50; i++)
-  {
-    analogWrite(PIN_LED_RED, valueRed *= TRANSITION_FADE_FACTOR);
-    analogWrite(PIN_LED_GREEN, valueGreen *= TRANSITION_FADE_FACTOR);
-    analogWrite(PIN_LED_BLUE, valueBlue *= TRANSITION_FADE_FACTOR);
-    analogWrite(PIN_LED_WHITE, valueWhite *= TRANSITION_FADE_FACTOR);
-    analogWrite(PIN_LED_WARMWHITE, valueWarmWhite *= TRANSITION_FADE_FACTOR);
+  // #define TRANSITION_FADE_FACTOR 0.9f
 
-    delay(3);
-  }
+  //   Serial.println(String("Fading all lights to zero, starting values:") +
+  //                  valueRed + " " + valueGreen + " " + valueBlue + " " +
+  //                  valueWhite + " " + valueWarmWhite);
+
+  //   for (int i = 0; i < 50; i++)
+  //   {
+  //     analogWrite(PIN_LED_RED, valueRed *= TRANSITION_FADE_FACTOR);
+  //     analogWrite(PIN_LED_GREEN, valueGreen *= TRANSITION_FADE_FACTOR);
+  //     analogWrite(PIN_LED_BLUE, valueBlue *= TRANSITION_FADE_FACTOR);
+  //     analogWrite(PIN_LED_WHITE, valueWhite *= TRANSITION_FADE_FACTOR);
+  //     analogWrite(PIN_LED_WARMWHITE, valueWarmWhite *=
+  //     TRANSITION_FADE_FACTOR);
+
+  //     delay(3);
+  //   }
 
   analogWrite(PIN_LED_RED, 0);
   analogWrite(PIN_LED_GREEN, 0);

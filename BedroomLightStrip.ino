@@ -1,5 +1,6 @@
 #include <EEPROM.h>
 #include <Wire.h>
+#include <ds3231.h>
 
 #include "lcd_driver.h"
 
@@ -8,6 +9,7 @@
 #include "pinMap.h"
 #include "stateMachine.h"
 #include "storage.h"
+#include "wifiClient.h"
 
 bool lastJoystickSwitchValue = false;
 float menuAccumulatorX = 0.0f;
@@ -220,7 +222,7 @@ void tick_menu()
       modeData_sunrise_menuSelection = 1;
     }
 
-#define MENU_SUNRISE_X_FACTOR 0.5f
+#define MENU_SUNRISE_X_FACTOR 0.75f
 
     if (menuAccumulatorX != 0)
     {
@@ -276,6 +278,9 @@ void setup()
   Serial.begin(9600);
 
   // LCD
+  pinMode(PIN_LCD_BRIGHTNESS, OUTPUT);
+  analogWrite(PIN_LCD_BRIGHTNESS, 255);
+
   lcdSetup();
 
   // LED brightness output
@@ -341,6 +346,8 @@ void setup()
     storage_readValues();
   }
 
+  wifiClient_setup();
+
   // Start app
   delay(250);
   //  stateMachine_setMode(MODE_MUSIC);
@@ -377,6 +384,9 @@ void loop()
       redrawLcd();
       // FIXME: Lol naming
       lcdUpdate();
+
+      // Wifi gets lower frequency updates to help with jitter
+      wifiClient_tick();
     }
 
     storage_tick();
