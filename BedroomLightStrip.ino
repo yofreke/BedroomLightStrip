@@ -29,9 +29,31 @@ volatile unsigned long lastLcdUpdateTimeMs = 0;
 */
 bool drawNavigation = false;
 
+unsigned long lastMenuInteractionTime;
+#define LCD_DIM_DELAY_TIME 10000
+#define LCD_FADE_TIME 10000
+
 void redrawLcd()
 {
   lastLcdUpdateTimeMs = g_milliseconds;
+
+  // Update backlight strength
+  // Fade over ten seconds, after first second.
+  // Note: Timeing is bad because using system clock.
+  unsigned long lastInteractionDiff = g_milliseconds - lastMenuInteractionTime;
+  if (lastInteractionDiff > LCD_DIM_DELAY_TIME)
+  {
+    analogWrite(PIN_LCD_BRIGHTNESS,
+                255.0f -
+                    min(((float)(lastInteractionDiff - LCD_DIM_DELAY_TIME) /
+                         (float)LCD_FADE_TIME) *
+                            255.0f,
+                        255.0f));
+  }
+  else
+  {
+    analogWrite(PIN_LCD_BRIGHTNESS, 255);
+  }
 
   if (!drawNavigation)
   {
@@ -180,8 +202,15 @@ void tick_menu()
   // Value from -1 to +1
   // Map joystick values to values that make sense in our project
   float scaledY = scaleJoystickValue(valueX);
+  float scaledX = scaleJoystickValue(valueY) * -1;
 
-  menuAccumulatorX += scaleJoystickValue(valueY) * -1;
+  if (scaledX == 0 && scaledY == 0 && !valueSwitch)
+  {
+    return;
+  }
+  lastMenuInteractionTime = g_milliseconds;
+
+  menuAccumulatorX += scaledX;
   menuAccumulatorY += scaledY;
 
   //    Serial.print(menuAccumulatorX);
@@ -349,7 +378,12 @@ void setup()
   wifiClient_setup();
 
   // Start app
-  delay(250);
+  for (int i = 0; i < 25; i++)
+  {
+    analogWrite(PIN_LCD_BRIGHTNESS, i * 10);
+    delay(10);
+  }
+
   //  stateMachine_setMode(MODE_MUSIC);
   stateMachine_setMode(MODE_SUNRISE);
 }
